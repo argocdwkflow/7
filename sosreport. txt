@@ -1,0 +1,202 @@
+Très bonne question 👍 — l’analyse d’un sosreport sous RHEL 9 est une compétence clé pour le troubleshooting avancé (niveau N3).
+
+Voici une méthode complète, structurée et efficace pour identifier une root cause à partir d’un sosreport.
+
+
+---
+
+🧠 1. Comprendre ce qu’est un sosreport
+
+sosreport est un snapshot complet du système :
+il collecte automatiquement les journaux, la configuration, les statuts et les métriques.
+Le répertoire compressé (ex : sosreport-hostname-YYYYMMDD.tar.xz) contient des sous-dossiers essentiels :
+
+sos_commands/        → Sorties des commandes système
+etc/                 → Fichiers de configuration
+var/log/             → Journaux (messages, secure, dmesg…)
+sos_reports/         → Résumé général
+
+
+---
+
+🧩 2. Extraire et préparer le rapport
+
+mkdir /tmp/sos && cd /tmp/sos
+tar -xvf /path/to/sosreport*.tar.xz
+
+Tu verras un dossier du type :
+sosreport-hostname-2025-10-25/
+
+
+---
+
+🔍 3. Points clés à analyser (méthode N3)
+
+a. Journaux système
+
+Chemin :
+
+sos_commands/logs/
+var/log/messages
+var/log/secure
+var/log/dmesg
+
+🔹 Chercher erreurs critiques :
+
+grep -iE "error|fail|critical|panic|call trace" var/log/messages | tail -50
+grep -iE "segfault|oom|hung" var/log/messages | tail -50
+
+🔹 Sur RHEL 9, le journal journald est aussi capturé :
+
+sos_commands/systemd/journalctl_--no-pager
+
+
+---
+
+b. Performance / CPU / mémoire / I/O
+
+Chemins utiles :
+
+sos_commands/kernel/uptime
+sos_commands/kernel/vmstat_-s
+sos_commands/kernel/mpstat_-P_ALL_1_1
+sos_commands/kernel/iostat_-x_1_1
+
+🔹 Identifier le top CPU consumers :
+
+sos_commands/process/ps_auxwww
+grep -iE "COMMAND|java|httpd|mcafee|tibco" sos_commands/process/ps_auxwww
+
+🔹 Vérifier si le système a swapé :
+
+grep -A5 "Swap" sos_commands/kernel/free_-m
+
+🔹 Vérifier load average :
+
+grep "load average" sos_commands/kernel/uptime
+
+
+---
+
+c. Disk / Filesystem / LVM
+
+Chemins :
+
+sos_commands/filesys/df_-h
+sos_commands/filesys/mount
+sos_commands/lvm/vgdisplay
+sos_commands/lvm/pvdisplay
+sos_commands/lvm/lvdisplay
+
+🔹 Rechercher erreurs I/O :
+
+grep -i "I/O error" var/log/messages
+
+🔹 Vérifier si un FS est en read-only :
+
+grep "Remounting filesystem read-only" var/log/messages
+
+
+---
+
+d. Network
+
+Chemins :
+
+sos_commands/networking/ip_addr
+sos_commands/networking/ip_route_show
+sos_commands/networking/nmcli_dev_show
+sos_commands/networking/ss_-s
+
+🔹 Vérifier interfaces down / bonding :
+
+grep -i "state" sos_commands/networking/ip_link_show
+grep -i "bond" sos_commands/networking/nmcli_dev_show
+
+🔹 Logs Network :
+
+grep -iE "NetworkManager|eth|bond" var/log/messages
+
+
+---
+
+e. Systemd / Services
+
+Chemin :
+
+sos_commands/systemd/systemctl_list-units
+
+🔹 Chercher les services en échec :
+
+grep failed sos_commands/systemd/systemctl_list-units
+
+🔹 Voir les redémarrages fréquents :
+
+grep "Starting" sos_commands/systemd/journalctl_--no-pager | grep -i failed
+
+
+---
+
+⚙️ 4. Utiliser les outils Red Hat pour analyse automatique
+
+Sur RHEL 9, tu peux automatiser l’analyse du sosreport :
+
+✅ a. sosreport-analyzer
+
+Installation :
+
+dnf install sos sos-collector sosreport-analyzer -y
+
+Utilisation :
+
+sosreport-analyzer ./sosreport-hostname-*
+
+➡️ Produit un résumé avec les anomalies, logs, et configurations anormales.
+
+✅ b. Red Hat Insights (si connecté)
+
+Tu peux téléverser le rapport :
+
+insights-client --analyze sosreport.tar.xz
+
+➡️ Il donne un diagnostic avec recommandations (kernel, performance, sécurité, etc.).
+
+
+---
+
+🧾 5. Corrélation root cause (exemples concrets)
+
+Type d’incident	Fichiers à vérifier	Indicateur root cause
+
+High CPU	ps, top, mpstat	Process spécifique en boucle (java, httpd, etc.)
+Memory leak	free, vmstat, messages	OOM-killer entries, swap usage
+FS error	dmesg, messages	ext4 error, read-only remount
+Network down	ip_link, messages	interface DOWN, LACP failure
+Slow failover cluster	corosync/pacemaker logs	timeout, fencing, latency
+
+
+
+---
+
+🧩 6. Bonnes pratiques d’interprétation
+
+Toujours corréler les timestamps (grep "Oct 21 13:" messages) avec le moment de l’incident.
+
+Compare les métriques avant / pendant / après le problème.
+
+Vérifie les changements récents (yum.log, rpm.log).
+
+Note les anomalies répétées sur plusieurs jours.
+
+
+
+---
+
+Si tu veux, je peux :
+
+🧠 analyser un sosreport que tu me fournis (en pièce jointe ou listant son arborescence)
+
+ou 👨‍🔧 te créer un script d’analyse automatique qui fait tous ces checks (CPU, memory, logs, FS, net…).
+
+
+Souhaites-tu que je te prépare ce script d’analyse automatisée pour RHEL 9 ?
