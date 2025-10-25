@@ -1,0 +1,157 @@
+Excellente question 👌 — c’est un point clé en troubleshooting Linux professionnel : savoir si on peut récupérer un sosreport “avant incident” pour comparer avec celui pris “après incident”.
+
+Voici toutes les possibilités selon les cas 👇
+
+
+---
+
+🧠 1️⃣ Comprendre le principe
+
+sosreport n’est pas généré automatiquement par le système :
+il ne prend une “photo” de l’état du système que quand tu exécutes manuellement la commande :
+
+sosreport
+
+👉 Donc, tu ne peux pas recréer un sosreport d’avant incident à moins qu’il ait été :
+
+déjà généré avant (ex. routine hebdo, patching, audit, etc.),
+
+ou qu’il soit disponible sur un backup, satellite, ou NFS partagé.
+
+
+
+---
+
+🧩 2️⃣ Vérifie s’il existe un sosreport plus ancien sur le serveur
+
+Les sosreports sont souvent stockés ici :
+
+/var/tmp/
+
+ou parfois :
+
+/root/
+
+ou
+
+/tmp/
+
+➤ Commande pour les lister :
+
+ls -lh /var/tmp/sosreport* /root/sosreport* /tmp/sosreport* 2>/dev/null
+
+Exemple de résultat :
+
+-rw------- 1 root root 180M Oct 17 10:12 /var/tmp/sosreport-server1-2025-10-17-10-12-22.tar.xz
+-rw------- 1 root root 190M Oct 22 15:30 /var/tmp/sosreport-server1-2025-10-22-15-30-12.tar.xz
+
+➡️ Ici, celui du 17 octobre est ton “avant incident”,
+et celui du 22 octobre est ton “après incident”.
+
+
+---
+
+🧮 3️⃣ Identifier la date exacte de chaque sosreport
+
+stat /var/tmp/sosreport-*.tar.xz | grep Modify
+
+ou plus lisible :
+
+ls -lh --time-style=long-iso /var/tmp/sosreport*
+
+
+---
+
+⚙️ 4️⃣ Si aucun sosreport avant incident n’existe
+
+Tu as 3 options possibles selon ton environnement :
+
+🔸 a. Si tu utilises Red Hat Satellite
+
+Chaque action (ex. patching, compliance, inventory) peut collecter des sosreports automatiques.
+Vérifie sur ton Satellite (6.x ou 7.x) :
+
+/var/lib/pulp/
+
+ou depuis l’interface Satellite → Hosts → Reports → sosreports
+Tu peux parfois y télécharger un rapport ancien.
+
+
+---
+
+🔸 b. Si tu as sos-collector
+
+sos-collector permet de collecter les sosreports de plusieurs serveurs et les archiver :
+
+sos collect --cluster-name <nom>
+
+➡️ Les anciens rapports sont stockés sur le nœud collecteur (généralement /var/tmp/sos-collector-*).
+
+
+---
+
+🔸 c. Si tu as un backup système (NFS, snapshot, sauvegarde Commvault, etc.)
+
+Cherche dans le backup du répertoire :
+
+/var/tmp/
+
+ou
+
+/root/
+
+pour extraire le sosreport d’une date antérieure à l’incident.
+
+
+---
+
+🧰 5️⃣ Une fois récupéré → comparaison
+
+Si tu as :
+
+sosreport-server1-2025-10-17-10-12.tar.xz (avant incident)
+
+sosreport-server1-2025-10-22-15-30.tar.xz (après incident)
+
+
+➡️ Compare-les avec :
+
+sosreport-analyzer ./sosreport-server1-2025-10-17-10-12/ ./sosreport-server1-2025-10-22-15-30/
+
+Tu verras les changements de configuration, de kernel, ou d’erreurs apparues après.
+
+
+---
+
+🧩 6️⃣ Si tu veux automatiser la création “préventive” de sosreport
+
+Je te conseille de planifier une tâche cron hebdomadaire pour générer un sosreport avant toute opération critique :
+
+cat <<EOF > /etc/cron.weekly/sosreport_auto
+#!/bin/bash
+mkdir -p /var/tmp/sosarchive
+sosreport --batch --tmp-dir /var/tmp/sosarchive > /dev/null 2>&1
+find /var/tmp/sosarchive -type f -mtime +14 -delete
+EOF
+chmod +x /etc/cron.weekly/sosreport_auto
+
+✅ Cela crée automatiquement un sosreport chaque semaine et supprime ceux de plus de 14 jours.
+
+
+---
+
+✅ Résumé
+
+Cas	Action
+
+Déjà généré avant	Chercher dans /var/tmp, /root, /tmp
+Satellite / Capsule	Télécharger depuis interface ou /var/lib/pulp/
+Sos-collector	Vérifier /var/tmp/sos-collector-*
+Backup	Restaurer le fichier depuis sauvegarde
+Rien d’existant	Planifier une génération automatique (cron)
+
+
+
+---
+
+Souhaites-tu que je te crée un script automatique de récupération + comparaison entre le dernier sosreport disponible et celui “après incident” (avec résumé CPU, FS, network, logs) ?
